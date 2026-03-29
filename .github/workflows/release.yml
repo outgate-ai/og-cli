@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  CLI_BUCKET: outgate-dev-cli-releases
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            echo "env=prod" >> "$GITHUB_OUTPUT"
+          else
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            echo "version=0.0.0-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "env=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          LDFLAGS="-s -w -X github.com/outgate-ai/og-cli/version.Version=${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          go build -ldflags "${LDFLAGS}" -o dist/og-${{ matrix.goos }}-${{ matrix.goarch }} .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BINARY="og-${{ matrix.goos }}-${{ matrix.goarch }}"
+
+          # Upload versioned
+          aws s3 cp "dist/${BINARY}" "s3://${CLI_BUCKET}/download/${VERSION}/${BINARY}" \
+            --content-type "application/octet-stream"
+
+          # Upload as latest
+          aws s3 cp "dist/${BINARY}" "s3://${CLI_BUCKET}/download/latest/${BINARY}" \
+            --content-type "application/octet-stream"
+
+  upload-install-script:
+    runs-on: ubuntu-latest
+    needs: build-and-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            echo "version=0.0.0-dev.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload install.sh and version file
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          aws s3 cp scripts/install.sh "s3://${CLI_BUCKET}/download/install.sh" \
+            --content-type "text/plain" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "${VERSION}" > /tmp/VERSION
+          aws s3 cp /tmp/VERSION "s3://${CLI_BUCKET}/download/VERSION" \
+            --content-type "text/plain" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          DIST_ID="${{ secrets.CF_DISTRIBUTION_ID }}"
+          if [ -n "$DIST_ID" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id "$DIST_ID" \
+              --paths "/download/latest/*" "/download/install.sh" "/download/VERSION"
+          fi
+
+      - name: Summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "## Release ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Install:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "curl -fsSL https://dev.outgate.ai/download/install.sh | sh" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
