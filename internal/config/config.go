@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 )
 
+// DefaultAPIBase and DefaultConsoleURL are set at build time via -ldflags for prod.
+var DefaultAPIBase = "https://console.dev.outgate.ai/api"
+var DefaultConsoleURL = "https://console.dev.outgate.ai"
+
 const (
-	DefaultAPIBase   = "https://console.dev.outgate.ai/api"
-	DefaultConsoleURL = "https://console.dev.outgate.ai"
-	configDirName    = ".og"
-	credFileName     = "credentials.json"
-	configFileName   = "config.json"
+	configDirName  = ".og"
+	credFileName   = "credentials.json"
+	configFileName = "config.json"
 )
 
 // Credentials holds the stored CLI token.

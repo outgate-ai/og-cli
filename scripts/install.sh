@@ -8,7 +8,7 @@ main() {
 set -eu
 
 BINARY_NAME="og"
-BASE_URL="https://dev.outgate.ai/download"
+BASE_URL="${OG_DOWNLOAD_URL:-https://outgate.ai/download}"
 
 red="$( (/usr/bin/tput bold 2>/dev/null || :; /usr/bin/tput setaf 1 2>/dev/null || :) 2>&-)"
 green="$( (/usr/bin/tput bold 2>/dev/null || :; /usr/bin/tput setaf 2 2>/dev/null || :) 2>&-)"
