@@ -257,7 +257,7 @@ func successPage(title, message string, isError bool) string {
   <div class="dots"></div>
   <div class="wrap">
     <div class="card">
-      <div class="logo"><img src="https://console.gatewise.ai/logos/gatewise-ai-dark-on-light.png" alt="Outgate" /></div>
+      <div class="logo"><img src="https://console.outgate.ai/logos/outgate-ai-dark-on-light.png" alt="Outgate" /></div>
       {{ICON}}
       <h1>{{TITLE}}</h1>
       <p>{{MESSAGE}}</p>
