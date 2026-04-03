@@ -207,12 +207,10 @@ func LoadConfig() *Config {
 	return applyDefaults(&cfg)
 }
 
-// APIBaseURL returns the effective API base URL, checking env var override.
+// APIBaseURL returns the effective API base URL.
+// Resolution: env var > .og.yaml > global config > default.
 func APIBaseURL() string {
-	if v := os.Getenv("OG_API_BASE"); v != "" {
-		return v
-	}
-	return LoadConfig().APIBase
+	return EffectiveAPIBase()
 }
 
 // ConsoleURL returns the effective console URL, checking env var override.
