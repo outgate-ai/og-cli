@@ -10,20 +10,22 @@ import "os"
 //   4. Environment variables (OG_*)
 //   5. Build-time defaults
 type ResolvedConfig struct {
-	APIBase  string
-	Provider string
-	Project  string
-	Region   string
-	Scan     ScanConfig
+	APIBase    string
+	Provider   string
+	Project    string
+	Region     string
+	GatewayURL string // direct gateway URL for local/private regions
+	Scan       ScanConfig
 }
 
 // ResolveInput holds the CLI flag values (may be empty).
 type ResolveInput struct {
-	APIBase  string
-	Provider string
-	Project  string
-	Region   string
-	StartDir string // directory to start .og.yaml search from
+	APIBase    string
+	Provider   string
+	Project    string
+	Region     string
+	GatewayURL string
+	StartDir   string // directory to start .og.yaml search from
 }
 
 // Resolve merges all config layers and returns the final resolved config.
@@ -56,6 +58,9 @@ func Resolve(input ResolveInput) *ResolvedConfig {
 	if v := os.Getenv("OG_REGION"); v != "" {
 		resolved.Region = v
 	}
+	if v := os.Getenv("OG_GATEWAY_URL"); v != "" {
+		resolved.GatewayURL = v
+	}
 
 	// Layer 2: .og.yaml (local project config)
 	startDir := input.StartDir
@@ -75,6 +80,9 @@ func Resolve(input ResolveInput) *ResolvedConfig {
 			}
 			if projCfg.Region != "" {
 				resolved.Region = projCfg.Region
+			}
+			if projCfg.GatewayURL != "" {
+				resolved.GatewayURL = projCfg.GatewayURL
 			}
 			// Merge scan config
 			if projCfg.Scan != nil {
@@ -106,6 +114,9 @@ func Resolve(input ResolveInput) *ResolvedConfig {
 	}
 	if input.Region != "" {
 		resolved.Region = input.Region
+	}
+	if input.GatewayURL != "" {
+		resolved.GatewayURL = input.GatewayURL
 	}
 
 	return resolved

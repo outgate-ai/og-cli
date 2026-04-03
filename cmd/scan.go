@@ -112,13 +112,21 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 	if !full.GuardrailEnabled {
 		return fmt.Errorf("provider '%s' does not have guardrail enabled.\nEnable a guardrail policy first at the console.", full.Name)
 	}
-	if full.Endpoint == "" {
-		return fmt.Errorf("provider '%s' has no endpoint — wait for gateway sync to complete", full.Name)
+
+	// Determine the gateway endpoint for this provider
+	// Priority: gateway_url from config (for local/private regions) > provider endpoint (public regions)
+	endpoint := full.Endpoint
+	if resolved.GatewayURL != "" {
+		// Local/private region: use gateway_url + provider path
+		endpoint = strings.TrimRight(resolved.GatewayURL, "/") + "/" + full.ID
+	}
+	if endpoint == "" {
+		return fmt.Errorf("provider '%s' has no endpoint.\nFor local/private regions, set 'gateway_url' in .og.yaml:\n\n  gateway_url: \"http://localhost:8000\"\n", full.Name)
 	}
 
 	fmt.Printf("Scanning %s\n", projectDir)
 	fmt.Printf("Provider: %s (%s)\n", full.Name, full.ID)
-	fmt.Printf("Endpoint: %s\n\n", full.Endpoint)
+	fmt.Printf("Endpoint: %s\n\n", endpoint)
 
 	// Walk directory and collect text files
 	files, err := collectFiles(projectDir, &resolved.Scan)
@@ -147,7 +155,7 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 			continue
 		}
 
-		result, err := scanFile(ctx, full.Endpoint, creds.Token, string(content))
+		result, err := scanFile(ctx, endpoint, creds.Token, string(content))
 		if err != nil {
 			fmt.Printf("  %-50s  error: %s\n", relPath, err.Error())
 			failedFiles = append(failedFiles, relPath)

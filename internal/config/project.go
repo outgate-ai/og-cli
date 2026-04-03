@@ -12,10 +12,11 @@ const projectConfigFile = ".og.yaml"
 // ProjectConfig holds per-project settings from .og.yaml
 type ProjectConfig struct {
 	// Core
-	Provider string `yaml:"provider,omitempty"` // provider name or ID
-	Project  string `yaml:"project,omitempty"`  // project name (for share naming)
-	Region   string `yaml:"region,omitempty"`   // region ID override
-	APIBase  string `yaml:"api_base,omitempty"` // API base URL override
+	Provider   string `yaml:"provider,omitempty"`    // provider name or ID
+	Project    string `yaml:"project,omitempty"`     // project name (for share naming)
+	Region     string `yaml:"region,omitempty"`      // region ID override
+	APIBase    string `yaml:"api_base,omitempty"`    // API base URL override
+	GatewayURL string `yaml:"gateway_url,omitempty"` // direct gateway URL (e.g. http://localhost:8000 for local regions)
 
 	// Scan settings
 	Scan *ScanConfig `yaml:"scan,omitempty"`
