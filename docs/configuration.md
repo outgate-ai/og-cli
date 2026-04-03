@@ -27,7 +27,7 @@ Created automatically on login. Stores user-level settings and credentials refer
 }
 ```
 
-### `~/.og/credentials.json` — Auth Token
+### `~/.og/credentials.json` — Auth Token (Default Endpoint)
 
 Managed by `og login` / `og logout`. Do not edit manually.
 
@@ -38,6 +38,30 @@ Managed by `og login` / `og logout`. Do not edit manually.
   "org_id": "o-abc123",
   "org_name": "My Org"
 }
+```
+
+### `~/.og/credentials/{hostname}.json` — Multi-Endpoint Auth
+
+When `.og.yaml` points to a different `api_base`, credentials are stored
+per-hostname. This allows simultaneous login to multiple Outgate instances
+(e.g., prod, staging, self-hosted).
+
+```
+~/.og/
+  credentials.json                          # default endpoint
+  credentials/
+    console.staging.internal.json          # staging instance
+    self-hosted.company.com.json           # on-prem instance
+```
+
+`og login` automatically targets the endpoint from `.og.yaml`:
+
+```bash
+cd project-with-staging-yaml/
+og login    # → authenticates against staging, saves to credentials/console.staging.internal.json
+
+cd project-with-prod-yaml/
+og login    # → authenticates against prod, saves to credentials.json (default)
 ```
 
 ### `.og.yaml` — Project Config

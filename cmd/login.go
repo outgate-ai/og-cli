@@ -51,10 +51,12 @@ type callbackResult struct {
 }
 
 func loginHandler(cmd *cobra.Command, args []string) error {
-	// Check if already logged in
+	// Check if already logged in (for the effective API endpoint)
+	effectiveAPI := config.EffectiveAPIBase()
 	creds, _ := config.LoadCredentials()
 	if creds != nil && creds.Token != "" {
 		fmt.Printf("Already logged in as %s (%s)\n", creds.Name, creds.Email)
+		fmt.Printf("Endpoint: %s\n", effectiveAPI)
 		fmt.Println("Run 'og logout' first to sign in as a different user.")
 		return nil
 	}
@@ -143,7 +145,8 @@ func loginHandler(cmd *cobra.Command, args []string) error {
 		if result.OrgName != "" {
 			fmt.Printf("Organization: %s\n", result.OrgName)
 		}
-		fmt.Println("Credentials saved to ~/.og/credentials.json")
+		host := config.EffectiveAPIBase()
+		fmt.Printf("Endpoint: %s\n", host)
 		return nil
 
 	case <-ctx.Done():

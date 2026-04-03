@@ -3,8 +3,10 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DefaultAPIBase and DefaultConsoleURL are set at build time via -ldflags for prod.
@@ -77,9 +79,63 @@ func Dir() (string, error) {
 	return dir, nil
 }
 
-// SaveCredentials writes credentials to ~/.og/credentials.json.
-func SaveCredentials(creds *Credentials) error {
+// credPathForEndpoint returns the credential file path for a given API base URL.
+// Uses ~/.og/credentials/{hostname}.json for multi-endpoint support.
+// Falls back to ~/.og/credentials.json for the default endpoint.
+func credPathForEndpoint(apiBase string) (string, error) {
 	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+
+	host := endpointHost(apiBase)
+	defaultHost := endpointHost(DefaultAPIBase)
+
+	// Default endpoint uses legacy path for backward compatibility
+	if host == "" || host == defaultHost {
+		return filepath.Join(dir, credFileName), nil
+	}
+
+	// Other endpoints use ~/.og/credentials/{hostname}.json
+	credDir := filepath.Join(dir, "credentials")
+	if err := os.MkdirAll(credDir, 0700); err != nil {
+		return "", err
+	}
+	return filepath.Join(credDir, host+".json"), nil
+}
+
+// endpointHost extracts the hostname from an API base URL.
+func endpointHost(apiBase string) string {
+	if apiBase == "" {
+		return ""
+	}
+	u, err := url.Parse(apiBase)
+	if err != nil {
+		// Fall back to simple extraction
+		apiBase = strings.TrimPrefix(apiBase, "https://")
+		apiBase = strings.TrimPrefix(apiBase, "http://")
+		if idx := strings.Index(apiBase, "/"); idx >= 0 {
+			apiBase = apiBase[:idx]
+		}
+		return apiBase
+	}
+	return u.Hostname()
+}
+
+// EffectiveAPIBase returns the current effective API base, considering .og.yaml.
+func EffectiveAPIBase() string {
+	resolved := Resolve(ResolveInput{})
+	return resolved.APIBase
+}
+
+// SaveCredentials writes credentials for the effective API endpoint.
+func SaveCredentials(creds *Credentials) error {
+	return SaveCredentialsFor(EffectiveAPIBase(), creds)
+}
+
+// SaveCredentialsFor writes credentials for a specific API endpoint.
+func SaveCredentialsFor(apiBase string, creds *Credentials) error {
+	path, err := credPathForEndpoint(apiBase)
 	if err != nil {
 		return err
 	}
@@ -87,17 +143,20 @@ func SaveCredentials(creds *Credentials) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, credFileName)
 	return os.WriteFile(path, data, 0600)
 }
 
-// LoadCredentials reads credentials from ~/.og/credentials.json.
+// LoadCredentials reads credentials for the effective API endpoint.
 func LoadCredentials() (*Credentials, error) {
-	dir, err := Dir()
+	return LoadCredentialsFor(EffectiveAPIBase())
+}
+
+// LoadCredentialsFor reads credentials for a specific API endpoint.
+func LoadCredentialsFor(apiBase string) (*Credentials, error) {
+	path, err := credPathForEndpoint(apiBase)
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, credFileName)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -112,13 +171,17 @@ func LoadCredentials() (*Credentials, error) {
 	return &creds, nil
 }
 
-// DeleteCredentials removes the credentials file.
+// DeleteCredentials removes credentials for the effective API endpoint.
 func DeleteCredentials() error {
-	dir, err := Dir()
+	return DeleteCredentialsFor(EffectiveAPIBase())
+}
+
+// DeleteCredentialsFor removes credentials for a specific API endpoint.
+func DeleteCredentialsFor(apiBase string) error {
+	path, err := credPathForEndpoint(apiBase)
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, credFileName)
 	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
