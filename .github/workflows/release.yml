@@ -106,7 +106,10 @@ jobs:
       - name: Upload install.sh and version file
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          aws s3 cp scripts/install.sh "s3://${CLI_BUCKET}/download/install.sh" \
+          # Inject the correct download domain into install.sh
+          sed "s|https://outgate.ai/download|https://${DOWNLOAD_DOMAIN}/download|g" \
+            scripts/install.sh > /tmp/install.sh
+          aws s3 cp /tmp/install.sh "s3://${CLI_BUCKET}/download/install.sh" \
             --content-type "text/plain" \
             --cache-control "no-cache, no-store, must-revalidate"
           echo "${VERSION}" > /tmp/VERSION
