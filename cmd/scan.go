@@ -238,7 +238,7 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 		}
 		if fileDetections > 0 {
 			fmt.Printf("  %s %-45s  %d detections  %dms%s\n", progress, relPath, fileDetections, fileTotalLatency, chunkInfo)
-		} else if (i+1)%20 == 0 || i == len(files)-1 {
+		} else {
 			fmt.Printf("  %s %-45s  clean%s\n", progress, relPath, chunkInfo)
 		}
 	}
