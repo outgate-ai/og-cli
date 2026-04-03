@@ -146,12 +146,15 @@ func (c *Client) RefreshCliToken(ctx context.Context) (*CliRefreshResponse, erro
 // -- Providers ---
 
 type Provider struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	Status     string `json:"status,omitempty"`
-	ModelCount int    `json:"modelCount,omitempty"`
-	CreatedAt  string `json:"createdAt,omitempty"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Status            string `json:"status,omitempty"`
+	ModelCount        int    `json:"modelCount,omitempty"`
+	CreatedAt         string `json:"createdAt,omitempty"`
+	Endpoint          string `json:"endpoint,omitempty"`
+	GuardrailEnabled  bool   `json:"guardrailEnabled,omitempty"`
+	GuardrailPolicyID string `json:"guardrailPolicyId,omitempty"`
 }
 
 type ProvidersResponse struct {
@@ -170,6 +173,12 @@ func (c *Client) ListProviders(ctx context.Context) ([]Provider, error) {
 		return nil, err
 	}
 	return resp.Providers, nil
+}
+
+func (c *Client) GetProvider(ctx context.Context, id string) (*Provider, error) {
+	var resp Provider
+	err := c.do(ctx, http.MethodGet, "/providers/"+id, nil, &resp)
+	return &resp, err
 }
 
 // -- Provider Management ---

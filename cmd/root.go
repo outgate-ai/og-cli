@@ -31,6 +31,7 @@ func NewCLI() *cobra.Command {
 		claudeCmd(),
 		codexCmd(),
 		envCmd(),
+		scanCmd(),
 	)
 
 	return root
