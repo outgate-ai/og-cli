@@ -220,6 +220,11 @@ func ConsoleURL() string {
 	if v := os.Getenv("OG_CONSOLE_URL"); v != "" {
 		return v
 	}
+	// Derive from effective API base — strip /api suffix
+	apiBase := EffectiveAPIBase()
+	if strings.HasSuffix(apiBase, "/api") {
+		return strings.TrimSuffix(apiBase, "/api")
+	}
 	return LoadConfig().ConsoleURL
 }
 
