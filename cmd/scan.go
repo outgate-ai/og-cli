@@ -18,33 +18,14 @@ import (
 	"github.com/outgate-ai/og-cli/internal/config"
 )
 
-// File extensions to scan
-var scanExtensions = map[string]bool{
-	".ts": true, ".js": true, ".py": true, ".go": true, ".rs": true, ".java": true,
-	".yaml": true, ".yml": true, ".json": true, ".toml": true, ".ini": true,
-	".env": true, ".cfg": true, ".conf": true, ".xml": true,
-	".sh": true, ".bash": true, ".zsh": true, ".sql": true, ".md": true, ".txt": true,
-	".rb": true, ".php": true, ".cs": true, ".kt": true, ".swift": true,
-	".dockerfile": true, ".tf": true, ".hcl": true, ".properties": true,
-}
-
-// Directories to skip
-var skipDirs = map[string]bool{
-	"node_modules": true, ".git": true, "dist": true, "build": true,
-	"vendor": true, "__pycache__": true, ".next": true, ".nuxt": true,
-	"target": true, "out": true, ".cache": true, ".venv": true, "venv": true,
-}
-
-const maxFileSize = 1024 * 1024 // 1MB
-
 // DryRunResponse is the response from a guardrail dry-run request
 type DryRunResponse struct {
-	DryRun            bool   `json:"dryRun"`
-	Decision          string `json:"decision"`
-	Severity          string `json:"severity"`
-	Reason            string `json:"reason"`
-	GuardrailLatencyMs int   `json:"guardrailLatencyMs"`
-	Detections        []struct {
+	DryRun             bool   `json:"dryRun"`
+	Decision           string `json:"decision"`
+	Severity           string `json:"severity"`
+	Reason             string `json:"reason"`
+	GuardrailLatencyMs int    `json:"guardrailLatencyMs"`
+	Detections         []struct {
 		Text     string `json:"text"`
 		Category string `json:"category"`
 	} `json:"detections"`
@@ -63,20 +44,22 @@ to detect PII, credentials, and other sensitive data. Detections are
 stored in the Detection Vault for fast matching on future requests.
 
 Requires a provider with guardrail enabled. Uses the dry-run mode —
-requests are evaluated but never forwarded to the upstream.`,
+requests are evaluated but never forwarded to the upstream.
+
+Configuration is resolved in order: CLI flags > .og.yaml > ~/.og/config.json > env vars > defaults.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(cmd.Context(), providerFlag, projectFlag)
 		},
 	}
 
-	cmd.Flags().StringVar(&providerFlag, "provider", "", "Provider ID or name (required — must have guardrail enabled)")
+	cmd.Flags().StringVar(&providerFlag, "provider", "", "Provider ID or name (must have guardrail enabled)")
 	cmd.Flags().StringVar(&projectFlag, "project", "", "Project directory to scan (default: current directory)")
-	_ = cmd.MarkFlagRequired("provider")
 
 	return cmd
 }
 
-func runScan(ctx context.Context, providerRef, projectDir string) error {
+func runScan(ctx context.Context, providerFlag, projectFlag string) error {
+	projectDir := projectFlag
 	if projectDir == "" {
 		var err error
 		projectDir, err = os.Getwd()
@@ -84,27 +67,39 @@ func runScan(ctx context.Context, providerRef, projectDir string) error {
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
 	}
-
-	// Resolve absolute path
 	projectDir, _ = filepath.Abs(projectDir)
+
+	// Resolve config: CLI flags > .og.yaml > global config > env vars > defaults
+	resolved := config.Resolve(config.ResolveInput{
+		Provider: providerFlag,
+		Project:  projectFlag,
+		StartDir: projectDir,
+	})
+
+	if resolved.Provider == "" {
+		return fmt.Errorf("provider is required — use --provider flag or set 'provider' in .og.yaml")
+	}
 
 	creds, err := config.LoadCredentials()
 	if err != nil || creds == nil || creds.Token == "" {
 		return fmt.Errorf("not logged in — run 'og login' first")
 	}
 
-	regionID, _ := config.ActiveRegion()
+	regionID := resolved.Region
 	if regionID == "" {
-		return fmt.Errorf("no region selected — run 'og region select' first")
+		regionID, _ = config.ActiveRegion()
+	}
+	if regionID == "" {
+		return fmt.Errorf("no region selected — run 'og region select' or set 'region' in .og.yaml")
 	}
 
-	client, err := api.NewClient(config.APIBaseURL(), creds.Token, creds.OrgID, regionID)
+	client, err := api.NewClient(resolved.APIBase, creds.Token, creds.OrgID, regionID)
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 
-	// Resolve provider
-	provider, err := resolveProvider(ctx, client, providerRef)
+	// Resolve provider by name or ID
+	provider, err := resolveProvider(ctx, client, resolved.Provider)
 	if err != nil {
 		return err
 	}
@@ -126,7 +121,7 @@ func runScan(ctx context.Context, providerRef, projectDir string) error {
 	fmt.Printf("Endpoint: %s\n\n", full.Endpoint)
 
 	// Walk directory and collect text files
-	files, err := collectFiles(projectDir)
+	files, err := collectFiles(projectDir, &resolved.Scan)
 	if err != nil {
 		return fmt.Errorf("failed to scan directory: %w", err)
 	}
@@ -173,7 +168,6 @@ func runScan(ctx context.Context, providerRef, projectDir string) error {
 		if count > 0 {
 			fmt.Printf("  %-50s  %d detections  %s  %dms\n", relPath, count, bar, result.GuardrailLatencyMs)
 		} else if (i+1)%20 == 0 || i == len(files)-1 {
-			// Print progress periodically for clean files
 			fmt.Printf("  %-50s  clean\n", relPath)
 		}
 	}
@@ -206,7 +200,6 @@ func resolveProvider(ctx context.Context, client *api.Client, ref string) (*api.
 		}
 	}
 
-	// Fuzzy match
 	for i, p := range providers {
 		if strings.Contains(strings.ToLower(p.Name), strings.ToLower(ref)) {
 			return &providers[i], nil
@@ -216,36 +209,55 @@ func resolveProvider(ctx context.Context, client *api.Client, ref string) (*api.
 	return nil, fmt.Errorf("provider '%s' not found", ref)
 }
 
-func collectFiles(root string) ([]string, error) {
+func collectFiles(root string, scanCfg *config.ScanConfig) ([]string, error) {
+	extSet := make(map[string]bool, len(scanCfg.Extensions))
+	for _, ext := range scanCfg.Extensions {
+		extSet[ext] = true
+	}
+
+	excludeDirSet := make(map[string]bool, len(scanCfg.ExcludeDirs))
+	for _, dir := range scanCfg.ExcludeDirs {
+		excludeDirSet[dir] = true
+	}
+
+	maxSize := scanCfg.MaxFileSize
+	if maxSize <= 0 {
+		maxSize = 1024 * 1024
+	}
+
 	var files []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return nil // skip errors
+			return nil
 		}
 		if info.IsDir() {
-			if skipDirs[info.Name()] {
+			if excludeDirSet[info.Name()] {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if info.Size() > maxFileSize {
+		if info.Size() > maxSize {
 			return nil
+		}
+
+		// Check excluded file patterns
+		for _, pattern := range scanCfg.ExcludeFiles {
+			if matched, _ := filepath.Match(pattern, info.Name()); matched {
+				return nil
+			}
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
 		name := strings.ToLower(info.Name())
 
-		// Match by extension
-		if scanExtensions[ext] {
+		if extSet[ext] {
 			files = append(files, path)
 			return nil
 		}
-		// Match .env.* files (e.g., .env.local, .env.production)
 		if strings.HasPrefix(name, ".env") {
 			files = append(files, path)
 			return nil
 		}
-		// Match Dockerfile
 		if name == "dockerfile" || strings.HasPrefix(name, "dockerfile.") {
 			files = append(files, path)
 			return nil
@@ -283,7 +295,6 @@ func scanFile(ctx context.Context, endpoint, token, content string) (*DryRunResp
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		// Check if it's a guardrail block response
 		if resp.StatusCode == 403 || resp.StatusCode == 422 {
 			var result DryRunResponse
 			result.Decision = "BLOCK"

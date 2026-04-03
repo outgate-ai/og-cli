@@ -112,6 +112,18 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	// Extract og-specific flags before passing rest to tool
 	providerOverride, projectName, args := extractOgFlags(args)
 
+	// Resolve config: CLI flags > .og.yaml > global config > env vars
+	resolved := config.Resolve(config.ResolveInput{
+		Provider: providerOverride,
+		Project:  projectName,
+	})
+	if resolved.Provider != "" && providerOverride == "" {
+		providerOverride = resolved.Provider
+	}
+	if resolved.Project != "" && projectName == "" {
+		projectName = resolved.Project
+	}
+
 	creds, err := config.LoadCredentials()
 	if err != nil || creds == nil || creds.Token == "" {
 		return fmt.Errorf("not logged in — run 'og login' first")
@@ -119,8 +131,11 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 
 	// Need active region
 	regionID, regionName := config.ActiveRegion()
+	if resolved.Region != "" && regionID == "" {
+		regionID = resolved.Region
+	}
 	if regionID == "" {
-		client, err := api.NewClient(config.APIBaseURL(), creds.Token, creds.OrgID)
+		client, err := api.NewClient(resolved.APIBase, creds.Token, creds.OrgID)
 		if err != nil {
 			return fmt.Errorf("failed to create client: %w", err)
 		}
