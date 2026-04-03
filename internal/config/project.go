@@ -24,10 +24,13 @@ type ProjectConfig struct {
 
 // ScanConfig holds settings for the og scan command.
 type ScanConfig struct {
-	Extensions  []string `yaml:"extensions,omitempty"`   // file extensions to include (e.g. [".py", ".ts"])
-	ExcludeDirs []string `yaml:"exclude_dirs,omitempty"` // directories to skip (e.g. ["vendor", "dist"])
-	ExcludeFiles []string `yaml:"exclude_files,omitempty"` // file patterns to skip (e.g. ["*.min.js"])
-	MaxFileSize  int64    `yaml:"max_file_size,omitempty"` // max file size in bytes (default 1MB)
+	Extensions       []string `yaml:"extensions,omitempty"`         // file extensions to include
+	ExcludeDirs      []string `yaml:"exclude_dirs,omitempty"`       // directories to skip
+	ExcludeFiles     []string `yaml:"exclude_files,omitempty"`      // file patterns to skip
+	MaxFileSize      int64    `yaml:"max_file_size,omitempty"`      // max file size in bytes (default 1MB)
+	MaxContextTokens int      `yaml:"max_context_tokens,omitempty"` // guardrail model context limit (default 128000)
+	ContextMargin    float64  `yaml:"context_margin,omitempty"`     // safety margin 0-1 (default 0.2 = 20%)
+	OverlapLines     int      `yaml:"overlap_lines,omitempty"`      // line overlap between chunks (default 50)
 }
 
 // FindProjectConfig walks up from dir looking for .og.yaml.

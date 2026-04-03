@@ -98,6 +98,15 @@ func Resolve(input ResolveInput) *ResolvedConfig {
 				if projCfg.Scan.MaxFileSize > 0 {
 					resolved.Scan.MaxFileSize = projCfg.Scan.MaxFileSize
 				}
+				if projCfg.Scan.MaxContextTokens > 0 {
+					resolved.Scan.MaxContextTokens = projCfg.Scan.MaxContextTokens
+				}
+				if projCfg.Scan.ContextMargin > 0 {
+					resolved.Scan.ContextMargin = projCfg.Scan.ContextMargin
+				}
+				if projCfg.Scan.OverlapLines > 0 {
+					resolved.Scan.OverlapLines = projCfg.Scan.OverlapLines
+				}
 			}
 		}
 	}

@@ -83,8 +83,23 @@ region: "reg-abc123"
 # API base URL override (optional)
 api_base: "https://console.outgate.ai/api"
 
+# Direct gateway URL for local/private regions (no public endpoint)
+gateway_url: "http://localhost:8000"
+
 # Scan settings (for og scan)
 scan:
+  # Guardrail model context limit in tokens (default: 128000)
+  # Files exceeding this are automatically chunked
+  max_context_tokens: 128000
+
+  # Safety margin for token estimation (default: 0.2 = 20%)
+  # Accounts for token counting inaccuracy (chars/token varies by language)
+  context_margin: 0.2
+
+  # Number of overlapping lines between chunks (default: 50)
+  # Ensures detections at chunk boundaries aren't missed
+  overlap_lines: 50
+
   # File extensions to include (overrides defaults)
   extensions:
     - ".py"
@@ -183,9 +198,16 @@ og scan --provider my-provider --project /path/to/project
 - Text files matching configured extensions (`.ts`, `.py`, `.env`, etc.)
 - Skips binary files, `node_modules/`, `.git/`, and other excluded directories
 - Files larger than `max_file_size` (default 1MB) are skipped
+- Large files are automatically chunked to fit the guardrail model's context window
+
+**Chunking:**
+- Files exceeding `max_context_tokens` (default 128K) are split on line boundaries
+- A 20% safety margin (`context_margin`) accounts for token estimation variance
+- Chunks overlap by `overlap_lines` (default 50) lines to catch boundary detections
+- Token estimation: ~4 characters per token (conservative for mixed English + code)
 
 **How it works:**
-1. Sends each file's content through the provider with the `X-Outgate-Guardrail: dry-run` header
+1. Sends each file (or chunk) through the provider with `X-Outgate-Guardrail: dry-run`
 2. The guardrail LLM evaluates the content for PII, credentials, and sensitive data
 3. Detections are stored in the Detection Vault (Redis KV fingerprint store)
 4. The request never reaches the upstream provider

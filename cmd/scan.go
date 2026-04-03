@@ -18,34 +18,35 @@ import (
 	"github.com/outgate-ai/og-cli/internal/config"
 )
 
-// DryRunResponse is the response from a guardrail dry-run request
+// DryRunResponse is the response from a guardrail dry-run request.
 type DryRunResponse struct {
-	DryRun             bool                `json:"dryRun"`
-	Decision           string              `json:"decision"`
-	Severity           string              `json:"severity"`
-	Reason             string              `json:"reason"`
-	GuardrailLatencyMs int                 `json:"guardrailLatencyMs"`
-	RawDetections      json.RawMessage     `json:"detections"`
-	Detections         []DryRunDetection   `json:"-"` // populated after unmarshal
-	AnonymizationCount int                 `json:"anonymizationCount"`
+	DryRun             bool              `json:"dryRun"`
+	Decision           string            `json:"decision"`
+	Severity           string            `json:"severity"`
+	Reason             string            `json:"reason"`
+	GuardrailLatencyMs int               `json:"guardrailLatencyMs"`
+	RawDetections      json.RawMessage   `json:"detections"`
+	Detections         []DryRunDetection `json:"-"`
+	AnonymizationCount int               `json:"anonymizationCount"`
 }
 
 type DryRunDetection struct {
-	Text        string `json:"text"`
-	Category    string `json:"category"`
+	Text     string `json:"text"`
+	Category string `json:"category"`
 }
 
-// parseDetections handles Lua cjson returning {} for empty arrays
+// parseDetections handles Lua cjson returning {} for empty arrays.
 func (r *DryRunResponse) parseDetections() {
 	if len(r.RawDetections) == 0 {
 		return
 	}
-	// Try as array first
 	if err := json.Unmarshal(r.RawDetections, &r.Detections); err != nil {
-		// Lua cjson encodes empty array as {} — ignore
 		r.Detections = nil
 	}
 }
+
+// Token estimation: ~4 chars per token (conservative for English + code).
+const charsPerToken = 4
 
 func scanCmd() *cobra.Command {
 	var providerFlag string
@@ -58,10 +59,28 @@ func scanCmd() *cobra.Command {
 to detect PII, credentials, and other sensitive data. Detections are
 stored in the Detection Vault for fast matching on future requests.
 
+Large files are automatically chunked to fit the guardrail model's context
+window (default 128K tokens, configurable via .og.yaml).
+
 Requires a provider with guardrail enabled. Uses the dry-run mode —
 requests are evaluated but never forwarded to the upstream.
 
-Configuration is resolved in order: CLI flags > .og.yaml > ~/.og/config.json > env vars > defaults.`,
+Configuration is resolved in order:
+  CLI flags > .og.yaml > ~/.og/config.json > env vars > defaults
+
+Example .og.yaml:
+
+  provider: "My Provider"
+  region: "reg-abc123"
+  gateway_url: "http://localhost:8000"   # for local/private regions
+  scan:
+    max_context_tokens: 128000           # guardrail model context limit
+    context_margin: 0.2                  # 20% safety margin
+    overlap_lines: 50                    # overlap between chunks
+    extensions: [".py", ".ts", ".env"]   # file types to scan
+    exclude_dirs: ["vendor", "dist"]     # dirs to skip
+    exclude_files: ["*.min.js"]          # file patterns to skip
+    max_file_size: 2097152               # max file size (bytes)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runScan(cmd.Context(), providerFlag, projectFlag)
 		},
@@ -84,7 +103,6 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 	}
 	projectDir, _ = filepath.Abs(projectDir)
 
-	// Resolve config: CLI flags > .og.yaml > global config > env vars > defaults
 	resolved := config.Resolve(config.ResolveInput{
 		Provider: providerFlag,
 		Project:  projectFlag,
@@ -113,13 +131,11 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 
-	// Resolve provider by name or ID
 	provider, err := resolveProvider(ctx, client, resolved.Provider)
 	if err != nil {
 		return err
 	}
 
-	// Verify guardrail is enabled
 	full, err := client.GetProvider(ctx, provider.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get provider details: %w", err)
@@ -128,22 +144,35 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 		return fmt.Errorf("provider '%s' does not have guardrail enabled.\nEnable a guardrail policy first at the console.", full.Name)
 	}
 
-	// Determine the gateway endpoint for this provider
-	// Priority: gateway_url from config (for local/private regions) > provider endpoint (public regions)
 	endpoint := full.Endpoint
 	if resolved.GatewayURL != "" {
-		// Local/private region: use gateway_url + provider path
 		endpoint = strings.TrimRight(resolved.GatewayURL, "/") + "/" + full.ID
 	}
 	if endpoint == "" {
 		return fmt.Errorf("provider '%s' has no endpoint.\nFor local/private regions, set 'gateway_url' in .og.yaml:\n\n  gateway_url: \"http://localhost:8000\"\n", full.Name)
 	}
 
+	// Compute chunk size from scan config
+	maxTokens := resolved.Scan.MaxContextTokens
+	if maxTokens <= 0 {
+		maxTokens = 128000
+	}
+	margin := resolved.Scan.ContextMargin
+	if margin <= 0 || margin >= 1 {
+		margin = 0.2
+	}
+	overlapLines := resolved.Scan.OverlapLines
+	if overlapLines <= 0 {
+		overlapLines = 50
+	}
+	maxCharsPerChunk := int(float64(maxTokens) * (1 - margin) * float64(charsPerToken))
+
 	fmt.Printf("Scanning %s\n", projectDir)
 	fmt.Printf("Provider: %s (%s)\n", full.Name, full.ID)
-	fmt.Printf("Endpoint: %s\n\n", endpoint)
+	fmt.Printf("Endpoint: %s\n", endpoint)
+	fmt.Printf("Context:  %dK tokens (%.0f%% margin, %d char chunks)\n\n",
+		maxTokens/1000, margin*100, maxCharsPerChunk)
 
-	// Walk directory and collect text files
 	files, err := collectFiles(projectDir, &resolved.Scan)
 	if err != nil {
 		return fmt.Errorf("failed to scan directory: %w", err)
@@ -156,9 +185,9 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 
 	fmt.Printf("Found %d text files\n\n", len(files))
 
-	// Scan each file
 	totalDetections := 0
 	totalFiles := 0
+	totalChunks := 0
 	detectionsByType := map[string]int{}
 	var failedFiles []string
 
@@ -170,34 +199,56 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 			continue
 		}
 
-		result, err := scanFile(ctx, endpoint, creds.Token, string(content))
-		if err != nil {
-			fmt.Printf("  %-50s  error: %s\n", relPath, err.Error())
-			failedFiles = append(failedFiles, relPath)
-			continue
-		}
+		// Chunk if file exceeds context limit
+		chunks := chunkContent(string(content), maxCharsPerChunk, overlapLines)
+		fileDetections := 0
+		fileTotalLatency := 0
 
-		count := len(result.Detections)
-		totalDetections += count
-		if count > 0 {
-			totalFiles++
+		for ci, chunk := range chunks {
+			result, err := scanFile(ctx, endpoint, creds.Token, chunk)
+			if err != nil {
+				suffix := ""
+				if len(chunks) > 1 {
+					suffix = fmt.Sprintf(" (chunk %d/%d)", ci+1, len(chunks))
+				}
+				fmt.Printf("  %-50s  error%s: %s\n", relPath, suffix, err.Error())
+				if ci == 0 {
+					failedFiles = append(failedFiles, relPath)
+				}
+				continue
+			}
+
+			fileDetections += len(result.Detections)
+			fileTotalLatency += result.GuardrailLatencyMs
 			for _, d := range result.Detections {
 				detectionsByType[d.Category]++
 			}
+			totalChunks++
 		}
 
-		// Display progress
-		bar := progressBar(count)
-		if count > 0 {
-			fmt.Printf("  %-50s  %d detections  %s  %dms\n", relPath, count, bar, result.GuardrailLatencyMs)
+		totalDetections += fileDetections
+		if fileDetections > 0 {
+			totalFiles++
+		}
+
+		bar := progressBar(fileDetections)
+		chunkInfo := ""
+		if len(chunks) > 1 {
+			chunkInfo = fmt.Sprintf(" (%d chunks)", len(chunks))
+		}
+		if fileDetections > 0 {
+			fmt.Printf("  %-50s  %d detections  %s  %dms%s\n", relPath, fileDetections, bar, fileTotalLatency, chunkInfo)
 		} else if (i+1)%20 == 0 || i == len(files)-1 {
-			fmt.Printf("  %-50s  clean\n", relPath)
+			fmt.Printf("  %-50s  clean%s\n", relPath, chunkInfo)
 		}
 	}
 
-	// Summary
 	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("Scan complete: %d detections across %d/%d files\n", totalDetections, totalFiles, len(files))
+	fmt.Printf("Scan complete: %d detections across %d/%d files", totalDetections, totalFiles, len(files))
+	if totalChunks > len(files) {
+		fmt.Printf(" (%d chunks)", totalChunks)
+	}
+	fmt.Println()
 	if len(detectionsByType) > 0 {
 		for cat, count := range detectionsByType {
 			fmt.Printf("  %-25s %d\n", cat, count)
@@ -209,6 +260,51 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 	fmt.Println("\nDetections stored in Detection Vault.")
 
 	return nil
+}
+
+// chunkContent splits content into chunks that fit within maxChars,
+// breaking on line boundaries with overlap for context continuity.
+func chunkContent(content string, maxChars, overlapLines int) []string {
+	if len(content) <= maxChars {
+		return []string{content}
+	}
+
+	lines := strings.Split(content, "\n")
+	var chunks []string
+	start := 0
+
+	for start < len(lines) {
+		// Find how many lines fit in maxChars
+		charCount := 0
+		end := start
+		for end < len(lines) {
+			lineLen := len(lines[end]) + 1 // +1 for newline
+			if charCount+lineLen > maxChars && end > start {
+				break
+			}
+			charCount += lineLen
+			end++
+		}
+
+		// Build chunk from lines[start:end]
+		chunk := strings.Join(lines[start:end], "\n")
+		chunks = append(chunks, chunk)
+
+		// Move start forward, keeping overlap
+		if end >= len(lines) {
+			break
+		}
+		start = end - overlapLines
+		if start < 0 {
+			start = 0
+		}
+		// Prevent infinite loop if overlap pushes start back to same position
+		if start <= (end - (end - start)) {
+			start = end
+		}
+	}
+
+	return chunks
 }
 
 func resolveProvider(ctx context.Context, client *api.Client, ref string) (*api.Provider, error) {
@@ -263,7 +359,6 @@ func collectFiles(root string, scanCfg *config.ScanConfig) ([]string, error) {
 			return nil
 		}
 
-		// Check excluded file patterns
 		for _, pattern := range scanCfg.ExcludeFiles {
 			if matched, _ := filepath.Match(pattern, info.Name()); matched {
 				return nil
