@@ -20,16 +20,31 @@ import (
 
 // DryRunResponse is the response from a guardrail dry-run request
 type DryRunResponse struct {
-	DryRun             bool   `json:"dryRun"`
-	Decision           string `json:"decision"`
-	Severity           string `json:"severity"`
-	Reason             string `json:"reason"`
-	GuardrailLatencyMs int    `json:"guardrailLatencyMs"`
-	Detections         []struct {
-		Text     string `json:"text"`
-		Category string `json:"category"`
-	} `json:"detections"`
-	AnonymizationCount int `json:"anonymizationCount"`
+	DryRun             bool                `json:"dryRun"`
+	Decision           string              `json:"decision"`
+	Severity           string              `json:"severity"`
+	Reason             string              `json:"reason"`
+	GuardrailLatencyMs int                 `json:"guardrailLatencyMs"`
+	RawDetections      json.RawMessage     `json:"detections"`
+	Detections         []DryRunDetection   `json:"-"` // populated after unmarshal
+	AnonymizationCount int                 `json:"anonymizationCount"`
+}
+
+type DryRunDetection struct {
+	Text        string `json:"text"`
+	Category    string `json:"category"`
+}
+
+// parseDetections handles Lua cjson returning {} for empty arrays
+func (r *DryRunResponse) parseDetections() {
+	if len(r.RawDetections) == 0 {
+		return
+	}
+	// Try as array first
+	if err := json.Unmarshal(r.RawDetections, &r.Detections); err != nil {
+		// Lua cjson encodes empty array as {} — ignore
+		r.Detections = nil
+	}
 }
 
 func scanCmd() *cobra.Command {
@@ -307,6 +322,7 @@ func scanFile(ctx context.Context, endpoint, token, content string) (*DryRunResp
 			var result DryRunResponse
 			result.Decision = "BLOCK"
 			_ = json.Unmarshal(respBody, &result)
+			result.parseDetections()
 			return &result, nil
 		}
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody[:min(200, len(respBody))]))
@@ -316,6 +332,7 @@ func scanFile(ctx context.Context, endpoint, token, content string) (*DryRunResp
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("invalid response: %w", err)
 	}
+	result.parseDetections()
 	return &result, nil
 }
 
