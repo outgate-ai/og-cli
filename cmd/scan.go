@@ -231,15 +231,15 @@ func runScan(ctx context.Context, providerFlag, projectFlag string) error {
 			totalFiles++
 		}
 
-		bar := progressBar(fileDetections)
+		progress := fmt.Sprintf("[%d/%d]", i+1, len(files))
 		chunkInfo := ""
 		if len(chunks) > 1 {
 			chunkInfo = fmt.Sprintf(" (%d chunks)", len(chunks))
 		}
 		if fileDetections > 0 {
-			fmt.Printf("  %-50s  %d detections  %s  %dms%s\n", relPath, fileDetections, bar, fileTotalLatency, chunkInfo)
+			fmt.Printf("  %s %-45s  %d detections  %dms%s\n", progress, relPath, fileDetections, fileTotalLatency, chunkInfo)
 		} else if (i+1)%20 == 0 || i == len(files)-1 {
-			fmt.Printf("  %-50s  clean%s\n", relPath, chunkInfo)
+			fmt.Printf("  %s %-45s  clean%s\n", progress, relPath, chunkInfo)
 		}
 	}
 
@@ -429,17 +429,6 @@ func scanFile(ctx context.Context, endpoint, token, content string) (*DryRunResp
 	}
 	result.parseDetections()
 	return &result, nil
-}
-
-func progressBar(detections int) string {
-	if detections == 0 {
-		return ""
-	}
-	filled := detections
-	if filled > 10 {
-		filled = 10
-	}
-	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", 10-filled) + "]"
 }
 
 func min(a, b int) int {
