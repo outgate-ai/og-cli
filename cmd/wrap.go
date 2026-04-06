@@ -193,10 +193,16 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	}
 
 	// Step 2: Find or create share
+	// Share name = [hostname] projectName — unique per machine
 	dirName := projectName
 	if dirName == "" {
 		dirName = currentDirName()
 	}
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "unknown"
+	}
+	shareName := fmt.Sprintf("[%s] %s", hostname, dirName)
 	shares, err := rc.ListShares(ctx, provider.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list shares: %w", err)
@@ -207,7 +213,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	var isAuthForwarding bool
 	var shareID string
 	for _, s := range shares {
-		if s.Name == dirName {
+		if s.Name == shareName {
 			shareEndpoint = s.Endpoint
 			shareApiKey = s.ApiKey
 			isAuthForwarding = s.AuthForwarding
@@ -218,7 +224,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 
 	if shareEndpoint == "" {
 		resp, err := rc.CreateShare(ctx, provider.ID, &api.CreateShareRequest{
-			Name: dirName,
+			Name: shareName,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create share: %w", err)
@@ -238,7 +244,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
 		shareApiKey = loadShareKey(shareID)
 		if shareApiKey == "" {
-			return fmt.Errorf("share '%s' exists but its API key is not cached on this machine.\n\nThe key was only shown when the share was first created.\nTo fix this, either:\n  1. Delete the share in the console and re-run (a new key will be generated)\n  2. Set %s manually in your environment", dirName, tc.apiKeyEnv)
+			return fmt.Errorf("share '%s' exists but its API key is not cached on this machine.\n\nThe key was only shown when the share was first created.\nTo fix this, either:\n  1. Delete the share in the console and re-run (a new key will be generated)\n  2. Set %s manually in your environment", shareName, tc.apiKeyEnv)
 		}
 	}
 
