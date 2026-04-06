@@ -205,11 +205,13 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	var shareEndpoint string
 	var shareApiKey string
 	var isAuthForwarding bool
+	var shareID string
 	for _, s := range shares {
 		if s.Name == dirName {
 			shareEndpoint = s.Endpoint
 			shareApiKey = s.ApiKey
 			isAuthForwarding = s.AuthForwarding
+			shareID = s.ID
 			break
 		}
 	}
@@ -224,6 +226,17 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 		shareEndpoint = resp.Endpoint
 		shareApiKey = resp.ApiKey
 		isAuthForwarding = resp.AuthForwarding
+		shareID = resp.ID
+
+		// Cache the API key locally — it's only returned once at creation
+		if shareApiKey != "" {
+			_ = saveShareKey(shareID, shareApiKey)
+		}
+	}
+
+	// Load cached API key if not in the list response (one-time reveal)
+	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
+		shareApiKey = loadShareKey(shareID)
 	}
 
 	// Step 3: exec the tool with env vars
@@ -270,4 +283,30 @@ func setEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+// saveShareKey caches a share's API key to ~/.og/shares/{shareID}.key
+func saveShareKey(shareID, apiKey string) error {
+	dir, err := config.Dir()
+	if err != nil {
+		return err
+	}
+	sharesDir := filepath.Join(dir, "shares")
+	if err := os.MkdirAll(sharesDir, 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(sharesDir, shareID+".key"), []byte(apiKey), 0600)
+}
+
+// loadShareKey reads a cached share API key from ~/.og/shares/{shareID}.key
+func loadShareKey(shareID string) string {
+	dir, err := config.Dir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "shares", shareID+".key"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
