@@ -237,6 +237,9 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	// Load cached API key if not in the list response (one-time reveal)
 	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
 		shareApiKey = loadShareKey(shareID)
+		if shareApiKey == "" {
+			return fmt.Errorf("share '%s' exists but its API key is not cached on this machine.\n\nThe key was only shown when the share was first created.\nTo fix this, either:\n  1. Delete the share in the console and re-run (a new key will be generated)\n  2. Set %s manually in your environment", dirName, tc.apiKeyEnv)
+		}
 	}
 
 	// Step 3: exec the tool with env vars
