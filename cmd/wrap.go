@@ -129,10 +129,11 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 		return fmt.Errorf("not logged in — run 'og login' first")
 	}
 
-	// Need active region
+	// Need active region — .og.yaml takes precedence over global config
 	regionID, regionName := config.ActiveRegion()
-	if resolved.Region != "" && regionID == "" {
+	if resolved.Region != "" {
 		regionID = resolved.Region
+		regionName = ""
 	}
 	if regionID == "" {
 		client, err := api.NewClient(resolved.APIBase, creds.Token, creds.OrgID)
