@@ -13,6 +13,7 @@ type ResolvedConfig struct {
 	APIBase    string
 	Provider   string
 	Project    string
+	Share      string // share ID — pin to existing share, skip auto-create
 	Region     string
 	GatewayURL string // direct gateway URL for local/private regions
 	Scan       ScanConfig
@@ -55,6 +56,9 @@ func Resolve(input ResolveInput) *ResolvedConfig {
 	if v := os.Getenv("OG_PROJECT"); v != "" {
 		resolved.Project = v
 	}
+	if v := os.Getenv("OG_SHARE"); v != "" {
+		resolved.Share = v
+	}
 	if v := os.Getenv("OG_REGION"); v != "" {
 		resolved.Region = v
 	}
@@ -77,6 +81,9 @@ func Resolve(input ResolveInput) *ResolvedConfig {
 			}
 			if projCfg.Project != "" {
 				resolved.Project = projCfg.Project
+			}
+			if projCfg.Share != "" {
+				resolved.Share = projCfg.Share
 			}
 			if projCfg.Region != "" {
 				resolved.Region = projCfg.Region

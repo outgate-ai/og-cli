@@ -14,6 +14,7 @@ type ProjectConfig struct {
 	// Core
 	Provider   string `yaml:"provider,omitempty"`    // provider name or ID
 	Project    string `yaml:"project,omitempty"`     // project name (for share naming)
+	Share      string `yaml:"share,omitempty"`       // share ID — pin to existing share, skip auto-create
 	Region     string `yaml:"region,omitempty"`      // region ID override
 	APIBase    string `yaml:"api_base,omitempty"`    // API base URL override
 	GatewayURL string `yaml:"gateway_url,omitempty"` // direct gateway URL (e.g. http://localhost:8000 for local regions)

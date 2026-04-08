@@ -147,17 +147,6 @@ func envHandler(cmd *cobra.Command, args []string) error {
 		provider = &api.Provider{ID: resp.ID, Name: resp.Name}
 	}
 
-	// Share name = [hostname] project
-	dirName := projectFlag
-	if dirName == "" {
-		dirName = func() string { d, _ := os.Getwd(); return currentDirName2(d) }()
-	}
-	hostname, _ := os.Hostname()
-	if hostname == "" {
-		hostname = "unknown"
-	}
-	shareName := fmt.Sprintf("[%s] %s", hostname, dirName)
-
 	shares, err := rc.ListShares(ctx, provider.ID)
 	if err != nil {
 		fmt.Printf("# og: failed to list shares: %v\n", err)
@@ -168,29 +157,58 @@ func envHandler(cmd *cobra.Command, args []string) error {
 	var shareApiKey string
 	var isAuthForwarding bool
 	var shareID string
-	for _, s := range shares {
-		if s.Name == shareName {
-			shareEndpoint = s.Endpoint
-			shareApiKey = s.ApiKey
-			isAuthForwarding = s.AuthForwarding
-			shareID = s.ID
-			break
-		}
-	}
 
-	if shareEndpoint == "" {
-		resp, err := rc.CreateShare(ctx, provider.ID, &api.CreateShareRequest{Name: shareName})
-		if err != nil {
-			fmt.Printf("# og: failed to create share: %v\n", err)
+	// If share is pinned in .og.yaml, look it up by ID
+	if resolved.Share != "" {
+		for _, s := range shares {
+			if s.ID == resolved.Share || s.Name == resolved.Share {
+				shareEndpoint = s.Endpoint
+				shareApiKey = s.ApiKey
+				isAuthForwarding = s.AuthForwarding
+				shareID = s.ID
+				break
+			}
+		}
+		if shareEndpoint == "" {
+			fmt.Printf("# og: share '%s' not found\n", resolved.Share)
 			return nil
 		}
-		shareEndpoint = resp.Endpoint
-		shareApiKey = resp.ApiKey
-		isAuthForwarding = resp.AuthForwarding
-		shareID = resp.ID
+	} else {
+		// Auto-create: share name = [hostname] project
+		dirName := projectFlag
+		if dirName == "" {
+			dirName = func() string { d, _ := os.Getwd(); return currentDirName2(d) }()
+		}
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "unknown"
+		}
+		shareName := fmt.Sprintf("[%s] %s", hostname, dirName)
 
-		if shareApiKey != "" {
-			_ = saveShareKey(shareID, shareApiKey)
+		for _, s := range shares {
+			if s.Name == shareName {
+				shareEndpoint = s.Endpoint
+				shareApiKey = s.ApiKey
+				isAuthForwarding = s.AuthForwarding
+				shareID = s.ID
+				break
+			}
+		}
+
+		if shareEndpoint == "" {
+			resp, err := rc.CreateShare(ctx, provider.ID, &api.CreateShareRequest{Name: shareName})
+			if err != nil {
+				fmt.Printf("# og: failed to create share: %v\n", err)
+				return nil
+			}
+			shareEndpoint = resp.Endpoint
+			shareApiKey = resp.ApiKey
+			isAuthForwarding = resp.AuthForwarding
+			shareID = resp.ID
+
+			if shareApiKey != "" {
+				_ = saveShareKey(shareID, shareApiKey)
+			}
 		}
 	}
 
