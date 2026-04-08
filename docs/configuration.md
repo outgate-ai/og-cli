@@ -77,6 +77,10 @@ provider: "Anthropic"
 # Project name (used for share naming in og claude / og codex)
 project: "my-app"
 
+# Pin to an existing share (ID or name) — skips auto-create
+# Useful when multiple machines share the same project share
+share: "shr-abc123"
+
 # Region override (optional — defaults to active region from global config)
 region: "reg-abc123"
 
@@ -134,8 +138,9 @@ scan:
 | `OG_API_BASE` | API base URL | `https://console.outgate.ai/api` |
 | `OG_PROVIDER` | Default provider name or ID | `Anthropic` |
 | `OG_PROJECT` | Default project name | `my-app` |
+| `OG_SHARE` | Pin to an existing share (ID or name) | `shr-abc123` |
 | `OG_REGION` | Default region ID | `reg-abc123` |
-| `OG_TOKEN` | Auth token (alternative to login) | `og_cli_...` |
+| `OG_GATEWAY_URL` | Direct gateway URL for local regions | `http://localhost:8000` |
 | `OG_CONSOLE_URL` | Console URL | `https://console.outgate.ai` |
 
 ## CLI Flags
@@ -278,4 +283,21 @@ scan:
   extensions: [".ts", ".js", ".py", ".go", ".yaml", ".json", ".env", ".tf"]
   exclude_dirs: ["node_modules", "vendor", "dist", "build", ".terraform"]
   max_file_size: 2097152  # 2MB
+```
+
+### Team Project (shared share across machines)
+
+```yaml
+provider: "Anthropic"
+share: "shr-968f12351de6bf7c"  # pin to existing share — all team members use the same one
+region: "reg-abc123"
+```
+
+### Local Dev with Private Region
+
+```yaml
+provider: "Local Ollama"
+region: "reg-c1b7f5a6aab22c75"
+gateway_url: "http://localhost:8000"
+api_base: "https://console.dev.outgate.ai/api"
 ```
