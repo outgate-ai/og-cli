@@ -149,7 +149,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 		_ = config.SetActiveRegion(regionID, regionName)
 	}
 
-	rc, err := api.NewClient(config.APIBaseURL(), creds.Token, creds.OrgID, regionID)
+	rc, err := api.NewClient(resolved.APIBase, creds.Token, creds.OrgID, regionID)
 	if err != nil {
 		return err
 	}

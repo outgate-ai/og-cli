@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -31,7 +30,9 @@ Add to .zshrc or VS Code terminal profile for persistent routing:
   fi
 
 Use --provider <name-or-id> to select a specific provider.
-Use --name <project> to set a custom share name (defaults to current directory).`,
+Use --name <project> to set a custom share name (defaults to current directory).
+
+Configuration is resolved in order: CLI flags > .og.yaml > ~/.og/config.json > env vars > defaults.`,
 		Args: cobra.ExactArgs(1),
 		RunE: envHandler,
 	}
@@ -47,18 +48,36 @@ func envHandler(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown tool: %s (supported: claude, codex)", toolName)
 	}
 
+	providerFlag, _ := cmd.Flags().GetString("provider")
+	projectFlag, _ := cmd.Flags().GetString("name")
+
+	// Resolve config: CLI flags > .og.yaml > global config > env vars
+	resolved := config.Resolve(config.ResolveInput{
+		Provider: providerFlag,
+		Project:  projectFlag,
+	})
+	if resolved.Provider != "" && providerFlag == "" {
+		providerFlag = resolved.Provider
+	}
+	if resolved.Project != "" && projectFlag == "" {
+		projectFlag = resolved.Project
+	}
+
 	creds, err := config.LoadCredentials()
 	if err != nil || creds == nil || creds.Token == "" {
-		// Silent fail for shell eval — just print comments
 		fmt.Println("# og: not logged in — run 'og login' first")
 		return nil
 	}
 
 	ctx := context.Background()
 
+	// Region — .og.yaml takes precedence over global config
 	regionID, _ := config.ActiveRegion()
+	if resolved.Region != "" {
+		regionID = resolved.Region
+	}
 	if regionID == "" {
-		client, err := api.NewClient(config.APIBaseURL(), creds.Token, creds.OrgID)
+		client, err := api.NewClient(resolved.APIBase, creds.Token, creds.OrgID)
 		if err != nil {
 			fmt.Println("# og: failed to create client")
 			return nil
@@ -72,7 +91,7 @@ func envHandler(cmd *cobra.Command, args []string) error {
 		_ = config.SetActiveRegion(regionID, regions[0].Name)
 	}
 
-	rc, err := api.NewClient(config.APIBaseURL(), creds.Token, creds.OrgID, regionID)
+	rc, err := api.NewClient(resolved.APIBase, creds.Token, creds.OrgID, regionID)
 	if err != nil {
 		fmt.Println("# og: failed to create client")
 		return nil
@@ -85,17 +104,25 @@ func envHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find provider
-	providerOverride, _ := cmd.Flags().GetString("provider")
 	var provider *api.Provider
-	if providerOverride != "" {
+	if providerFlag != "" {
 		for i, p := range providers {
-			if p.ID == providerOverride || strings.EqualFold(p.Name, providerOverride) {
+			if p.ID == providerFlag || strings.EqualFold(p.Name, providerFlag) {
 				provider = &providers[i]
 				break
 			}
 		}
 		if provider == nil {
-			fmt.Printf("# og: provider '%s' not found\n", providerOverride)
+			// Fuzzy match
+			for i, p := range providers {
+				if strings.Contains(strings.ToLower(p.Name), strings.ToLower(providerFlag)) {
+					provider = &providers[i]
+					break
+				}
+			}
+		}
+		if provider == nil {
+			fmt.Printf("# og: provider '%s' not found\n", providerFlag)
 			return nil
 		}
 	} else {
@@ -108,7 +135,6 @@ func envHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	if provider == nil {
-		// Create provider silently
 		resp, err := rc.CreateProvider(ctx, &api.CreateProviderRequest{
 			Name:              tc.providerNameHint,
 			URL:               tc.upstreamURL,
@@ -121,11 +147,17 @@ func envHandler(cmd *cobra.Command, args []string) error {
 		provider = &api.Provider{ID: resp.ID, Name: resp.Name}
 	}
 
-	// Find or create share
-	dirName, _ := cmd.Flags().GetString("name")
+	// Share name = [hostname] project
+	dirName := projectFlag
 	if dirName == "" {
-		dirName = filepath.Base(func() string { d, _ := os.Getwd(); return d }())
+		dirName = func() string { d, _ := os.Getwd(); return currentDirName2(d) }()
 	}
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "unknown"
+	}
+	shareName := fmt.Sprintf("[%s] %s", hostname, dirName)
+
 	shares, err := rc.ListShares(ctx, provider.ID)
 	if err != nil {
 		fmt.Printf("# og: failed to list shares: %v\n", err)
@@ -135,17 +167,19 @@ func envHandler(cmd *cobra.Command, args []string) error {
 	var shareEndpoint string
 	var shareApiKey string
 	var isAuthForwarding bool
+	var shareID string
 	for _, s := range shares {
-		if s.Name == dirName {
+		if s.Name == shareName {
 			shareEndpoint = s.Endpoint
 			shareApiKey = s.ApiKey
 			isAuthForwarding = s.AuthForwarding
+			shareID = s.ID
 			break
 		}
 	}
 
 	if shareEndpoint == "" {
-		resp, err := rc.CreateShare(ctx, provider.ID, &api.CreateShareRequest{Name: dirName})
+		resp, err := rc.CreateShare(ctx, provider.ID, &api.CreateShareRequest{Name: shareName})
 		if err != nil {
 			fmt.Printf("# og: failed to create share: %v\n", err)
 			return nil
@@ -153,13 +187,34 @@ func envHandler(cmd *cobra.Command, args []string) error {
 		shareEndpoint = resp.Endpoint
 		shareApiKey = resp.ApiKey
 		isAuthForwarding = resp.AuthForwarding
+		shareID = resp.ID
+
+		if shareApiKey != "" {
+			_ = saveShareKey(shareID, shareApiKey)
+		}
 	}
 
-	// Print export statements to stdout (for eval)
+	// Load cached API key if not in list response
+	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
+		shareApiKey = loadShareKey(shareID)
+	}
+
+	// Print export statements
 	fmt.Printf("export %s=%s\n", tc.baseURLEnv, shareEndpoint)
 	if !isAuthForwarding && shareApiKey != "" {
 		fmt.Printf("export %s=%s\n", tc.apiKeyEnv, shareApiKey)
 	}
 
 	return nil
+}
+
+func currentDirName2(dir string) string {
+	if dir == "" {
+		return "default"
+	}
+	parts := strings.Split(dir, string(os.PathSeparator))
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return "default"
 }
