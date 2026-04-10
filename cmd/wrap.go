@@ -258,6 +258,15 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 		}
 	}
 
+	// Override share endpoint with gateway_url for local/private regions.
+	// The API returns a relative path (e.g. "/shadowId") for private regions
+	// that have no public endpoint — gateway_url provides the host.
+	if resolved.GatewayURL != "" {
+		if shareEndpoint == "" || strings.HasPrefix(shareEndpoint, "/") {
+			shareEndpoint = strings.TrimRight(resolved.GatewayURL, "/") + shareEndpoint
+		}
+	}
+
 	// Load cached API key if not in the list response (one-time reveal)
 	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
 		shareApiKey = loadShareKey(shareID)
