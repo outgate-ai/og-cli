@@ -91,12 +91,24 @@ func credPathForEndpoint(apiBase string) (string, error) {
 	host := endpointHost(apiBase)
 	defaultHost := endpointHost(DefaultAPIBase)
 
-	// Default endpoint uses legacy path for backward compatibility
+	// Other endpoints use ~/.og/credentials/{hostname}.json
+	// Check hostname-specific file first, even for the default endpoint,
+	// so that dev builds (where DefaultAPIBase == console.dev.outgate.ai)
+	// can find credentials stored per-hostname by prior og login runs.
+	if host != "" {
+		credDir := filepath.Join(dir, "credentials")
+		perHostPath := filepath.Join(credDir, host+".json")
+		if _, statErr := os.Stat(perHostPath); statErr == nil {
+			return perHostPath, nil
+		}
+	}
+
+	// Default endpoint falls back to legacy path for backward compatibility
 	if host == "" || host == defaultHost {
 		return filepath.Join(dir, credFileName), nil
 	}
 
-	// Other endpoints use ~/.og/credentials/{hostname}.json
+	// Non-default endpoint: create the credentials dir and return the per-host path
 	credDir := filepath.Join(dir, "credentials")
 	if err := os.MkdirAll(credDir, 0700); err != nil {
 		return "", err

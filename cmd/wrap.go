@@ -124,7 +124,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 		projectName = resolved.Project
 	}
 
-	creds, err := config.LoadCredentials()
+	creds, err := config.LoadCredentialsFor(resolved.APIBase)
 	if err != nil || creds == nil || creds.Token == "" {
 		return fmt.Errorf("not logged in — run 'og login' first")
 	}
