@@ -32,6 +32,7 @@ func NewCLI() *cobra.Command {
 		codexCmd(),
 		envCmd(),
 		scanCmd(),
+		vaultCmd(),
 	)
 
 	return root

@@ -339,3 +339,70 @@ func (c *Client) GetDashboard(ctx context.Context, period string) (*DashboardMet
 	err := c.do(ctx, http.MethodGet, path, nil, &resp)
 	return &resp, err
 }
+
+// -- Detection Vault ---
+
+type VaultDetection struct {
+	Hash       string `json:"hash"`
+	Type       string `json:"type"`
+	TokenCount int    `json:"tokenCount"`
+	Source     string `json:"source,omitempty"`
+	Tag        string `json:"tag,omitempty"`
+	Value      string `json:"value,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+	LastSeenAt string `json:"lastSeenAt"`
+}
+
+type VaultListResponse struct {
+	Detections []VaultDetection `json:"detections"`
+	Total       int              `json:"total"`
+	Page        int              `json:"page"`
+	StorageMode string           `json:"storageMode"`
+}
+
+type VaultAddResponse struct {
+	Hash   string `json:"hash"`
+	Stored bool   `json:"stored"`
+}
+
+type VaultDeleteByTagResponse struct {
+	Deleted int `json:"deleted"`
+}
+
+func (c *Client) VaultList(ctx context.Context, page, limit int, category, source string) (*VaultListResponse, error) {
+	params := url.Values{}
+	params.Set("page", fmt.Sprintf("%d", page))
+	params.Set("limit", fmt.Sprintf("%d", limit))
+	if category != "" {
+		params.Set("category", category)
+	}
+	if source != "" {
+		params.Set("source", source)
+	}
+	var resp VaultListResponse
+	err := c.do(ctx, http.MethodGet, "/guardrail-vault/detections?"+params.Encode(), nil, &resp)
+	return &resp, err
+}
+
+func (c *Client) VaultAdd(ctx context.Context, value, category, tag string) (*VaultAddResponse, error) {
+	body := map[string]any{"value": value}
+	if category != "" {
+		body["category"] = category
+	}
+	if tag != "" {
+		body["tag"] = tag
+	}
+	var resp VaultAddResponse
+	err := c.do(ctx, http.MethodPost, "/guardrail-vault/detections", body, &resp)
+	return &resp, err
+}
+
+func (c *Client) VaultDelete(ctx context.Context, hash string) error {
+	return c.do(ctx, http.MethodDelete, "/guardrail-vault/detections/"+url.PathEscape(hash), nil, nil)
+}
+
+func (c *Client) VaultDeleteByTag(ctx context.Context, tag string) (*VaultDeleteByTagResponse, error) {
+	var resp VaultDeleteByTagResponse
+	err := c.do(ctx, http.MethodDelete, "/guardrail-vault/detections/tag/"+url.PathEscape(tag), nil, &resp)
+	return &resp, err
+}
