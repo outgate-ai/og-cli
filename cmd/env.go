@@ -63,7 +63,7 @@ func envHandler(cmd *cobra.Command, args []string) error {
 		projectFlag = resolved.Project
 	}
 
-	creds, err := config.LoadCredentials()
+	creds, err := config.LoadCredentialsFor(resolved.APIBase)
 	if err != nil || creds == nil || creds.Token == "" {
 		fmt.Println("# og: not logged in — run 'og login' first")
 		return nil
@@ -209,6 +209,13 @@ func envHandler(cmd *cobra.Command, args []string) error {
 			if shareApiKey != "" {
 				_ = saveShareKey(shareID, shareApiKey)
 			}
+		}
+	}
+
+	// Override share endpoint with gateway_url for local/private regions
+	if resolved.GatewayURL != "" {
+		if shareEndpoint == "" || strings.HasPrefix(shareEndpoint, "/") {
+			shareEndpoint = strings.TrimRight(resolved.GatewayURL, "/") + shareEndpoint
 		}
 	}
 
