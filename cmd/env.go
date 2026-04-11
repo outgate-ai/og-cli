@@ -213,12 +213,18 @@ func envHandler(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load cached API key if not in list response
-	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
+	if shareApiKey == "" && shareID != "" {
 		shareApiKey = loadShareKey(shareID)
 	}
 
+	// Embed OG key in URL path so Authorization header stays free for upstream auth
+	baseURL := shareEndpoint
+	if shareApiKey != "" {
+		baseURL = strings.TrimRight(shareEndpoint, "/") + "/_k/" + shareApiKey
+	}
+
 	// Print export statements
-	fmt.Printf("export %s=%s\n", tc.baseURLEnv, shareEndpoint)
+	fmt.Printf("export %s=%s\n", tc.baseURLEnv, baseURL)
 	if !isAuthForwarding && shareApiKey != "" {
 		fmt.Printf("export %s=%s\n", tc.apiKeyEnv, shareApiKey)
 	}

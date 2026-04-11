@@ -268,7 +268,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	}
 
 	// Load cached API key if not in the list response (one-time reveal)
-	if shareApiKey == "" && !isAuthForwarding && shareID != "" {
+	if shareApiKey == "" && shareID != "" {
 		shareApiKey = loadShareKey(shareID)
 		if shareApiKey == "" {
 			return fmt.Errorf("share '%s' exists but its API key is not cached on this machine.\n\nThe key was only shown when the share was first created.\nTo fix this, either:\n  1. Delete the share in the console and re-run (a new key will be generated)\n  2. Set %s manually in your environment", shareID, tc.apiKeyEnv)
@@ -281,10 +281,17 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 		return fmt.Errorf("'%s' not found in PATH — install it first", tc.binary)
 	}
 
-	env := os.Environ()
-	env = setEnv(env, tc.baseURLEnv, shareEndpoint)
+	// Embed OG key in URL path so Authorization header stays free for upstream auth.
+	// URL format: {shareEndpoint}/_k/{shareApiKey}/v1/messages
+	baseURL := shareEndpoint
+	if shareApiKey != "" {
+		baseURL = strings.TrimRight(shareEndpoint, "/") + "/_k/" + shareApiKey
+	}
 
-	// For non-auth-forwarding shares, set the share's API key
+	env := os.Environ()
+	env = setEnv(env, tc.baseURLEnv, baseURL)
+
+	// For non-auth-forwarding shares, also set the API key env var as fallback
 	if !isAuthForwarding && shareApiKey != "" {
 		env = setEnv(env, tc.apiKeyEnv, shareApiKey)
 	}
