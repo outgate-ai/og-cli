@@ -155,6 +155,8 @@ type Provider struct {
 	Endpoint          string `json:"endpoint,omitempty"`
 	GuardrailEnabled  bool   `json:"guardrailEnabled,omitempty"`
 	GuardrailPolicyID string `json:"guardrailPolicyId,omitempty"`
+	DefaultModel      string `json:"defaultModel,omitempty"`
+	ForwardCallerAuth bool   `json:"forwardCallerAuth,omitempty"`
 }
 
 type ProvidersResponse struct {

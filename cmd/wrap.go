@@ -291,13 +291,56 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	env := os.Environ()
 	env = setEnv(env, tc.baseURLEnv, baseURL)
 
-	// For non-auth-forwarding shares, also set the API key env var as fallback
+	// Set API key env var:
+	// - Non-auth-forwarding: use share key (upstream auth handled by provider)
+	// - Auth-forwarding: set placeholder so tools don't error on missing key
+	//   (real auth goes via /_k/ in URL; user's own key should already be in env)
 	if !isAuthForwarding && shareApiKey != "" {
 		env = setEnv(env, tc.apiKeyEnv, shareApiKey)
+	} else if isAuthForwarding {
+		// Only set placeholder if user hasn't already set their own key
+		existing := os.Getenv(tc.apiKeyEnv)
+		if existing == "" {
+			env = setEnv(env, tc.apiKeyEnv, "og-managed")
+		}
+	}
+
+	// Inject default model from provider config if user didn't specify one
+	argv := append([]string{tc.binary}, args...)
+	if provider.DefaultModel != "" && tc.binary == "codex" {
+		hasModel := false
+		for _, a := range args {
+			if a == "-m" || a == "--model" || strings.HasPrefix(a, "-m=") || strings.HasPrefix(a, "--model=") {
+				hasModel = true
+				break
+			}
+			if strings.Contains(a, `model=`) {
+				hasModel = true
+				break
+			}
+		}
+		if !hasModel {
+			// Insert -m after the subcommand (e.g. codex exec -m model "prompt")
+			// Find first arg that isn't a subcommand (exec, review, etc.)
+			injected := []string{tc.binary}
+			modelInserted := false
+			for i, a := range args {
+				injected = append(injected, a)
+				// Insert after first positional arg (subcommand like "exec")
+				if !modelInserted && i == 0 && !strings.HasPrefix(a, "-") {
+					injected = append(injected, "-m", provider.DefaultModel)
+					modelInserted = true
+				}
+			}
+			if !modelInserted {
+				// No subcommand found, prepend
+				injected = append([]string{tc.binary, "-m", provider.DefaultModel}, args...)
+			}
+			argv = injected
+		}
 	}
 
 	// exec replaces the current process
-	argv := append([]string{tc.binary}, args...)
 	return syscall.Exec(binary, argv, env)
 }
 
