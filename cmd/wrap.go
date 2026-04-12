@@ -201,7 +201,6 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 
 	var shareEndpoint string
 	var shareApiKey string
-	var isAuthForwarding bool
 	var shareID string
 
 	// If share is pinned in .og.yaml, look it up by ID
@@ -210,7 +209,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 			if s.ID == resolved.Share || s.Name == resolved.Share {
 				shareEndpoint = s.Endpoint
 				shareApiKey = s.ApiKey
-				isAuthForwarding = s.AuthForwarding
+				_ = s.AuthForwarding
 				shareID = s.ID
 				break
 			}
@@ -234,7 +233,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 			if s.Name == shareName {
 				shareEndpoint = s.Endpoint
 				shareApiKey = s.ApiKey
-				isAuthForwarding = s.AuthForwarding
+				_ = s.AuthForwarding
 				shareID = s.ID
 				break
 			}
@@ -249,7 +248,7 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 			}
 			shareEndpoint = resp.Endpoint
 			shareApiKey = resp.ApiKey
-			isAuthForwarding = resp.AuthForwarding
+			_ = resp.AuthForwarding
 			shareID = resp.ID
 
 			if shareApiKey != "" {
@@ -291,18 +290,13 @@ func wrapTool(ctx context.Context, toolName string, args []string) error {
 	env := os.Environ()
 	env = setEnv(env, tc.baseURLEnv, baseURL)
 
-	// Set API key env var:
-	// - Non-auth-forwarding: use share key (upstream auth handled by provider)
-	// - Auth-forwarding: set placeholder so tools don't error on missing key
-	//   (real auth goes via /_k/ in URL; user's own key should already be in env)
-	if !isAuthForwarding && shareApiKey != "" {
-		env = setEnv(env, tc.apiKeyEnv, shareApiKey)
-	} else if isAuthForwarding {
-		// Only set placeholder if user hasn't already set their own key
-		existing := os.Getenv(tc.apiKeyEnv)
-		if existing == "" {
-			env = setEnv(env, tc.apiKeyEnv, "og-managed")
-		}
+	// Set placeholder API key so tools don't error on missing key.
+	// Real gateway auth goes via /_k/ in the URL path.
+	// For auth-forwarding: user's own key should already be in env (don't overwrite).
+	// For non-auth-forwarding: set placeholder (upstream auth handled by provider).
+	existing := os.Getenv(tc.apiKeyEnv)
+	if existing == "" {
+		env = setEnv(env, tc.apiKeyEnv, "og-managed")
 	}
 
 	// Inject default model from provider config if user didn't specify one

@@ -155,7 +155,7 @@ func envHandler(cmd *cobra.Command, args []string) error {
 
 	var shareEndpoint string
 	var shareApiKey string
-	var isAuthForwarding bool
+	// isAuthForwarding tracked but unused — all shares use /_k/ URL auth
 	var shareID string
 
 	// If share is pinned in .og.yaml, look it up by ID
@@ -164,7 +164,7 @@ func envHandler(cmd *cobra.Command, args []string) error {
 			if s.ID == resolved.Share || s.Name == resolved.Share {
 				shareEndpoint = s.Endpoint
 				shareApiKey = s.ApiKey
-				isAuthForwarding = s.AuthForwarding
+				_ = s.AuthForwarding
 				shareID = s.ID
 				break
 			}
@@ -189,7 +189,7 @@ func envHandler(cmd *cobra.Command, args []string) error {
 			if s.Name == shareName {
 				shareEndpoint = s.Endpoint
 				shareApiKey = s.ApiKey
-				isAuthForwarding = s.AuthForwarding
+				_ = s.AuthForwarding
 				shareID = s.ID
 				break
 			}
@@ -203,7 +203,7 @@ func envHandler(cmd *cobra.Command, args []string) error {
 			}
 			shareEndpoint = resp.Endpoint
 			shareApiKey = resp.ApiKey
-			isAuthForwarding = resp.AuthForwarding
+			_ = resp.AuthForwarding
 			shareID = resp.ID
 
 			if shareApiKey != "" {
@@ -232,8 +232,10 @@ func envHandler(cmd *cobra.Command, args []string) error {
 
 	// Print export statements
 	fmt.Printf("export %s=%s\n", tc.baseURLEnv, baseURL)
-	if !isAuthForwarding && shareApiKey != "" {
-		fmt.Printf("export %s=%s\n", tc.apiKeyEnv, shareApiKey)
+	// Set placeholder API key — real auth goes via /_k/ in URL path
+	existing := os.Getenv(tc.apiKeyEnv)
+	if existing == "" {
+		fmt.Printf("export %s=%s\n", tc.apiKeyEnv, "og-managed")
 	}
 
 	return nil
